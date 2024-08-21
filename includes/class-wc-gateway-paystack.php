@@ -1036,6 +1036,11 @@ class WC_Gateway_Paystack extends WC_Payment_Gateway_CC {
 
 				$paystack_response = json_decode( wp_remote_retrieve_body( $request ) );
 
+				bf_log( array( 
+					'original_paystack_process_webhooks' => 2, 
+					'paystack_response' => $paystack_response, 
+				) );
+
 				if ( ( 200 === $response_code ) && ( 'success' === strtolower( $paystack_response->data->status ) ) ) {
 
 					$order = wc_get_order( $order_id );
@@ -1194,6 +1199,13 @@ class WC_Gateway_Paystack extends WC_Payment_Gateway_CC {
 			$paystack_txn_ref = false;
 		}
 
+    bf_log( array( 
+			'original_paystack_verify_transaction' => 1, 
+			'_GET' => $_GET, 
+			'_POST' => $_POST, 
+			'input_json' => $json,
+		) );
+
 		@ob_clean();
 
 		if ( $paystack_txn_ref ) {
@@ -1319,12 +1331,35 @@ class WC_Gateway_Paystack extends WC_Payment_Gateway_CC {
 
 		$json = file_get_contents( 'php://input' );
 
+		bf_log( array( 
+			'original_paystack_process_webhooks' => 1, 
+			'_GET' => $_GET, 
+			'_POST' => $_POST, 
+			'input_json' => $json,
+		) );
+
+		bf_log( array(
+			'VALIDATE SIGNATURE' => 1,
+			'INCOMING' => $_SERVER['HTTP_X_PAYSTACK_SIGNATURE'],
+			'OUTGOING' => hash_hmac( 'sha512', $json, $this->secret_key ),
+			'json' => $json,
+			'sk' => $this->secret_key,
+		) );
+
 		// validate event do all at once to avoid timing attack.
 		if ( $_SERVER['HTTP_X_PAYSTACK_SIGNATURE'] !== hash_hmac( 'sha512', $json, $this->secret_key ) ) {
 			exit;
 		}
 
 		$event = json_decode( $json );
+
+    error_log('class-wc-gateway-paystack event->event');
+    error_log($event->event);
+		
+		bf_log( array(
+			'EVENT STATUS' => 1,
+			'$event->event' => $event->event,
+		) );
 
 		if ( 'charge.success' !== strtolower( $event->event ) ) {
 			return;
@@ -1349,6 +1384,12 @@ class WC_Gateway_Paystack extends WC_Payment_Gateway_CC {
 		}
 
 		$paystack_txn_ref = $order->get_meta( '_paystack_txn_ref' );
+
+    bf_log( array(
+      'EVENT STATUS' => 1,
+      '$event->data->reference' => $event->data->reference,
+      '$order->get_status()' => $order->get_status(),
+    ) );
 
 		if ( $paystack_response->data->reference != $paystack_txn_ref ) {
 			exit;
@@ -1454,6 +1495,13 @@ class WC_Gateway_Paystack extends WC_Payment_Gateway_CC {
 		$order = wc_get_order( $order_id );
 
 		$save_card = $order->get_meta( '_wc_paystack_save_card' );
+
+    gb_ocu_log( array(
+			'CHECK_PAYSTACK_RESPONSE' => 1,
+			'user_id' => $user_id,
+			'order_id' => $order_id,
+			'paystack_response' => $paystack_response
+		));
 
 		if ( $user_id && $this->saved_cards && $save_card && $paystack_response->data->authorization->reusable && 'card' == $paystack_response->data->authorization->channel ) {
 
